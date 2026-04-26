@@ -1,0 +1,35 @@
+{
+  "name": "sams-fullstack",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "client": "vite --host 127.0.0.1 --port 5173",
+    "server": "node backend/server.js",
+    "server:dev": "nodemon backend/server.js",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "serve:frontend": "node scripts/serveFrontend.js",
+    "db:init": "node backend/scripts/initDb.js"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "bcryptjs": "^3.0.2",
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.468.0",
+    "mysql2": "^3.15.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.9.5",
+    "recharts": "^3.2.1"
+  },
+  "devDependencies": {
+    "vite": "^7.1.10",
+    "nodemon": "^3.1.10"
+  }
+}
