@@ -29,4 +29,32 @@ export async function ensureDatabaseCompatibility() {
     `ALTER TABLE users
      MODIFY role ENUM('student', 'teacher', 'admin') NOT NULL`
   );
+
+  try {
+    await pool.execute(
+      `ALTER TABLE monthly_summary
+       MODIFY classes_held SMALLINT NOT NULL DEFAULT 0,
+       MODIFY classes_attended SMALLINT NOT NULL DEFAULT 0`
+    );
+
+    const [checks] = await pool.execute(
+      `SELECT cc.CONSTRAINT_NAME
+       FROM information_schema.CHECK_CONSTRAINTS cc
+       JOIN information_schema.TABLE_CONSTRAINTS tc
+         ON tc.CONSTRAINT_SCHEMA = cc.CONSTRAINT_SCHEMA
+        AND tc.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+       WHERE tc.TABLE_SCHEMA = DATABASE()
+         AND tc.TABLE_NAME = 'monthly_summary'
+         AND (
+           cc.CHECK_CLAUSE LIKE '%classes_held%30%'
+           OR cc.CHECK_CLAUSE LIKE '%classes_attended%30%'
+         )`
+    );
+
+    for (const check of checks) {
+      await pool.execute(`ALTER TABLE monthly_summary DROP CHECK \`${check.CONSTRAINT_NAME}\``);
+    }
+  } catch (error) {
+    console.warn('Monthly summary compatibility update skipped:', error.message);
+  }
 }

@@ -51,24 +51,24 @@ CREATE TABLE IF NOT EXISTS monthly_summary (
   subject_id INT NOT NULL,
   month TINYINT NOT NULL,
   year SMALLINT NOT NULL,
-  classes_held TINYINT NOT NULL DEFAULT 0,
-  classes_attended TINYINT NOT NULL DEFAULT 0,
+  classes_held SMALLINT NOT NULL DEFAULT 0,
+  classes_attended SMALLINT NOT NULL DEFAULT 0,
   percentage DECIMAL(5,2) GENERATED ALWAYS AS (
     CASE
-      WHEN LEAST(classes_held, 30) = 0 THEN 0
-      ELSE ROUND((classes_attended / LEAST(classes_held, 30)) * 100, 2)
+      WHEN classes_held = 0 THEN 0
+      ELSE ROUND((classes_attended / classes_held) * 100, 2)
     END
   ) STORED,
   is_eligible BOOLEAN GENERATED ALWAYS AS (
     CASE
-      WHEN LEAST(classes_held, 30) = 0 THEN FALSE
-      ELSE ((classes_attended / LEAST(classes_held, 30)) * 100 >= 75)
+      WHEN classes_held = 0 THEN FALSE
+      ELSE ((classes_attended / classes_held) * 100 >= 75)
     END
   ) STORED,
   UNIQUE KEY uq_monthly_summary_student_subject_month (student_id, subject_id, month, year),
   CHECK (month BETWEEN 1 AND 12),
-  CHECK (classes_held BETWEEN 0 AND 30),
-  CHECK (classes_attended BETWEEN 0 AND 30),
+  CHECK (classes_held >= 0),
+  CHECK (classes_attended >= 0),
   CHECK (classes_attended <= classes_held),
   INDEX idx_monthly_student (student_id, year, month),
   INDEX idx_monthly_subject (subject_id, year, month),

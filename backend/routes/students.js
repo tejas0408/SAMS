@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { authenticateToken, requireAnyRole, requireRole } from '../middleware/auth.js';
-import { eligibilityStatus, normalizePercentage } from '../utils.js';
+import { eligibilityStatus, normalizePercentage, semesterLabel } from '../utils.js';
 
 const router = Router();
 
@@ -22,25 +22,27 @@ router.get(
          s.id AS subject_id,
          s.name AS subject_name,
          s.code AS subject_code,
-         COALESCE(SUM(ms.classes_held), 0) AS classes_held,
-         COALESCE(SUM(ms.classes_attended), 0) AS classes_attended
+         st.year,
+         st.semester,
+         COALESCE(LEAST(st.raw_classes_held, 30), 0) AS classes_held,
+         COALESCE(LEAST(st.raw_classes_attended, LEAST(st.raw_classes_held, 30)), 0) AS classes_attended
        FROM users u
        LEFT JOIN subjects s
          ON s.department = u.department OR s.department = 'General'
-       LEFT JOIN monthly_summary ms
-         ON ms.student_id = u.id AND ms.subject_id = s.id
+       LEFT JOIN (
+         SELECT
+           student_id,
+           subject_id,
+           YEAR(date) AS year,
+           CASE WHEN MONTH(date) BETWEEN 1 AND 6 THEN 1 ELSE 2 END AS semester,
+           COUNT(*) AS raw_classes_held,
+           COALESCE(SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END), 0) AS raw_classes_attended
+         FROM attendance_records
+         GROUP BY student_id, subject_id, YEAR(date), CASE WHEN MONTH(date) BETWEEN 1 AND 6 THEN 1 ELSE 2 END
+       ) st
+         ON st.student_id = u.id AND st.subject_id = s.id
        WHERE u.role = 'student'
-       GROUP BY
-         u.id,
-         u.name,
-         u.email,
-         u.roll_number,
-         u.department,
-         u.created_at,
-         s.id,
-         s.name,
-         s.code
-       ORDER BY u.name ASC, s.name ASC`
+       ORDER BY u.name ASC, s.name ASC, st.year DESC, st.semester DESC`
     );
 
     const students = new Map();
@@ -67,6 +69,9 @@ router.get(
           subject_id: row.subject_id,
           subject_name: row.subject_name,
           subject_code: row.subject_code,
+          year: row.year,
+          semester: row.semester,
+          semester_label: row.semester ? semesterLabel(row.semester, row.year) : 'No semester data',
           classes_held: classesHeld,
           classes_attended: classesAttended,
           percentage,

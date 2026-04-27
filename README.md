@@ -109,17 +109,23 @@ Main tables:
   - Stores daily attendance.
   - Has a unique constraint on student, subject, and date.
 - `monthly_summary`
-  - Stores monthly calculated attendance.
-  - Classes held are capped at 30.
-  - Percentage and eligibility are based on the capped class count.
+  - Stores monthly calculated attendance for quick reference.
+  - Visible reports calculate eligibility from `attendance_records` so the 30-class cap applies to the whole semester, not each month.
 
 Attendance eligibility formula:
 
 ```text
-(classes_attended / MIN(classes_held, 30)) * 100 >= 75
+(semester_classes_attended / MIN(semester_classes_held, 30)) * 100 >= 75
 ```
 
-The backend also calculates percentage and eligibility in API queries, so the app works even if an older local table does not have generated columns.
+Semester split:
+
+```text
+Semester 1: January to June
+Semester 2: July to December
+```
+
+The backend calculates semester percentage and eligibility in API queries, so month reports show monthly activity while eligibility is based on semester totals.
 
 ## Setup
 
@@ -322,8 +328,9 @@ When attendance is marked:
 
 - The app inserts or updates the daily record.
 - The monthly summary is recalculated.
-- `classes_held` is capped at 30.
-- `classes_attended` is capped to the held class count.
+- Report percentages use semester totals.
+- `semester_classes_held` is capped at 30.
+- `semester_classes_attended` is capped to the semester held count.
 
 When attendance is removed, the monthly summary is recalculated. If no records remain for that student, subject, and month, the monthly summary row is removed.
 

@@ -14,6 +14,14 @@ export function monthYearFromISODate(date) {
   return { month, year };
 }
 
+export function semesterFromMonth(month) {
+  return Number(month) <= 6 ? 1 : 2;
+}
+
+export function semesterLabel(semester, year) {
+  return `Semester ${semester} ${year}`;
+}
+
 export function normalizePercentage(value) {
   return Number(Number(value || 0).toFixed(2));
 }

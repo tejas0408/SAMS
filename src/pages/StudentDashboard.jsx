@@ -12,7 +12,7 @@ import Badge from '../components/Badge.jsx';
 import Sidebar from '../components/Sidebar.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { apiRequest } from '../services/api.js';
-import { downloadCsv, eligibilityText, monthLabel } from '../utils/reports.js';
+import { downloadCsv, eligibilityText, monthLabel, semesterLabel } from '../utils/reports.js';
 
 const navItems = [
   { id: 'overview', label: 'Overview' },
@@ -84,28 +84,29 @@ export default function StudentDashboard() {
     const grouped = new Map();
 
     summaries.forEach((summary) => {
-      const key = summary.subject_id;
-      const current = grouped.get(key) || {
-        subject: summary.subject_code,
+      const key = `${summary.subject_id}-${summary.year}-${summary.semester}`;
+      grouped.set(key, {
+        subject: `${summary.subject_code} S${summary.semester}`,
         name: summary.subject_name,
-        held: 0,
-        attended: 0
-      };
-
-      current.held += Number(summary.classes_held || 0);
-      current.attended += Number(summary.classes_attended || 0);
-      grouped.set(key, current);
+        held: Number(summary.classes_held || 0),
+        attended: Number(summary.classes_attended || 0),
+        percentage: Number(summary.percentage || 0)
+      });
     });
 
-    return Array.from(grouped.values()).map((item) => ({
-      ...item,
-      percentage: item.held ? Number(((item.attended / item.held) * 100).toFixed(2)) : 0
-    }));
+    return Array.from(grouped.values());
   }, [summaries]);
 
   const totals = useMemo(() => {
-    const held = summaries.reduce((sum, item) => sum + Number(item.classes_held || 0), 0);
-    const attended = summaries.reduce((sum, item) => sum + Number(item.classes_attended || 0), 0);
+    const grouped = new Map();
+
+    summaries.forEach((summary) => {
+      grouped.set(`${summary.subject_id}-${summary.year}-${summary.semester}`, summary);
+    });
+
+    const semesterSummaries = Array.from(grouped.values());
+    const held = semesterSummaries.reduce((sum, item) => sum + Number(item.classes_held || 0), 0);
+    const attended = semesterSummaries.reduce((sum, item) => sum + Number(item.classes_attended || 0), 0);
     const percentage = held ? Number(((attended / held) * 100).toFixed(2)) : 0;
 
     return { held, attended, percentage, status: statusFromPercentage(percentage, held) };
@@ -119,7 +120,10 @@ export default function StudentDashboard() {
         `${monthLabel(summary.month)} ${summary.year}`,
         summary.subject_name,
         summary.subject_code,
-        Math.min(summary.classes_held, 30),
+        summary.semester_label || semesterLabel(summary.semester, summary.year),
+        summary.monthly_classes_held,
+        summary.monthly_classes_attended,
+        summary.classes_held,
         summary.classes_attended,
         `${summary.percentage}%`,
         eligibilityText(status)
@@ -135,7 +139,18 @@ export default function StudentDashboard() {
     downloadCsv(`attendance_report_${safeFilename(user?.roll_number || user?.name)}.csv`, [
       {
         title: 'Attendance Summary',
-        headers: ['Month', 'Subject', 'Code', 'Classes Held', 'Classes Attended', 'Percentage', 'Eligibility'],
+        headers: [
+          'Month',
+          'Subject',
+          'Code',
+          'Semester',
+          'Month Classes Held',
+          'Month Classes Attended',
+          'Semester Classes Held',
+          'Semester Classes Attended',
+          'Semester Percentage',
+          'Eligibility'
+        ],
         rows: summaryRows
       },
       {
@@ -252,7 +267,7 @@ export default function StudentDashboard() {
               <section className="panel">
                 <div className="panel-heading">
                   <h2>Monthly Breakdown</h2>
-                  <span>30-class monthly cap</span>
+                  <span>30-class semester cap</span>
                 </div>
                 <div className="table-wrap">
                   <table>
@@ -260,9 +275,12 @@ export default function StudentDashboard() {
                       <tr>
                         <th>Month</th>
                         <th>Subject</th>
-                        <th>Held</th>
-                        <th>Attended</th>
-                        <th>Percentage</th>
+                        <th>Month Held</th>
+                        <th>Month Attended</th>
+                        <th>Semester</th>
+                        <th>Semester Held</th>
+                        <th>Semester Attended</th>
+                        <th>Semester %</th>
                         <th>Eligibility</th>
                       </tr>
                     </thead>
@@ -276,7 +294,10 @@ export default function StudentDashboard() {
                               {months[summary.month - 1]} {summary.year}
                             </td>
                             <td>{summary.subject_name}</td>
-                            <td>{Math.min(summary.classes_held, 30)}</td>
+                            <td>{summary.monthly_classes_held}</td>
+                            <td>{summary.monthly_classes_attended}</td>
+                            <td>{summary.semester_label || semesterLabel(summary.semester, summary.year)}</td>
+                            <td>{summary.classes_held}</td>
                             <td>{summary.classes_attended}</td>
                             <td>{summary.percentage}%</td>
                             <td>

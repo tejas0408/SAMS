@@ -25,6 +25,11 @@ export function monthLabel(month) {
   return monthOptions.find((option) => Number(option.value) === Number(month))?.label || month;
 }
 
+export function semesterLabel(semester, year) {
+  if (!semester || !year) return 'No semester';
+  return `Semester ${semester} ${year}`;
+}
+
 function escapeCsv(value) {
   const text = value === null || value === undefined ? '' : String(value);
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;

@@ -3,7 +3,14 @@ import Badge from '../components/Badge.jsx';
 import Sidebar from '../components/Sidebar.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { apiRequest } from '../services/api.js';
-import { currentReportPeriod, downloadCsv, eligibilityText, monthLabel, monthOptions } from '../utils/reports.js';
+import {
+  currentReportPeriod,
+  downloadCsv,
+  eligibilityText,
+  monthLabel,
+  monthOptions,
+  semesterLabel
+} from '../utils/reports.js';
 
 const navItems = [
   { id: 'mark', label: 'Mark Attendance' },
@@ -408,7 +415,10 @@ export default function AdminDashboard() {
       report.department || '',
       report.subject_name,
       report.subject_code,
-      Math.min(report.classes_held, 30),
+      report.semester_label || semesterLabel(report.semester, report.year),
+      report.monthly_classes_held,
+      report.monthly_classes_attended,
+      report.classes_held,
       report.classes_attended,
       `${report.percentage}%`,
       eligibilityText(statusFromPercentage(report.percentage, report.classes_held))
@@ -423,9 +433,12 @@ export default function AdminDashboard() {
           'Department',
           'Subject',
           'Code',
-          'Classes Held',
-          'Classes Attended',
-          'Percentage',
+          'Semester',
+          'Month Classes Held',
+          'Month Classes Attended',
+          'Semester Classes Held',
+          'Semester Classes Attended',
+          'Semester Percentage',
           'Eligibility'
         ],
         rows
@@ -612,12 +625,16 @@ export default function AdminDashboard() {
                                 {student.subjects.map((subject) => {
                                   const status = statusFromPercentage(subject.percentage, subject.classes_held);
 
-                                  return (
-                                    <span className={`mini-summary mini-${status}`} key={subject.subject_id}>
-                                      <strong>{subject.subject_code}</strong>
-                                      {subject.percentage}%
-                                      <small>
-                                        {subject.classes_attended}/{subject.classes_held}
+                                return (
+                                  <span
+                                    className={`mini-summary mini-${status}`}
+                                    key={`${subject.subject_id}-${subject.year || 'none'}-${subject.semester || 'none'}`}
+                                  >
+                                    <strong>{subject.subject_code}</strong>
+                                    <span>{subject.semester_label}</span>
+                                    {subject.percentage}%
+                                    <small>
+                                      {subject.classes_attended}/{subject.classes_held}
                                       </small>
                                     </span>
                                   );
@@ -812,9 +829,12 @@ export default function AdminDashboard() {
                           <th>Roll</th>
                           <th>Department</th>
                           <th>Subject</th>
-                          <th>Held</th>
-                          <th>Attended</th>
-                          <th>Percentage</th>
+                          <th>Month Held</th>
+                          <th>Month Attended</th>
+                          <th>Semester</th>
+                          <th>Semester Held</th>
+                          <th>Semester Attended</th>
+                          <th>Semester %</th>
                           <th>Eligibility</th>
                         </tr>
                       </thead>
@@ -830,7 +850,10 @@ export default function AdminDashboard() {
                               <td>
                                 {report.subject_name} ({report.subject_code})
                               </td>
-                              <td>{Math.min(report.classes_held, 30)}</td>
+                              <td>{report.monthly_classes_held}</td>
+                              <td>{report.monthly_classes_attended}</td>
+                              <td>{report.semester_label || semesterLabel(report.semester, report.year)}</td>
+                              <td>{report.classes_held}</td>
                               <td>{report.classes_attended}</td>
                               <td>{report.percentage}%</td>
                               <td>
@@ -873,9 +896,12 @@ export default function AdminDashboard() {
                         <tr>
                           <th>Month</th>
                           <th>Subject</th>
-                          <th>Held</th>
-                          <th>Attended</th>
-                          <th>Percentage</th>
+                          <th>Month Held</th>
+                          <th>Month Attended</th>
+                          <th>Semester</th>
+                          <th>Semester Held</th>
+                          <th>Semester Attended</th>
+                          <th>Semester %</th>
                           <th>Eligibility</th>
                         </tr>
                       </thead>
@@ -889,7 +915,10 @@ export default function AdminDashboard() {
                                 {months[summary.month - 1]} {summary.year}
                               </td>
                               <td>{summary.subject_name}</td>
-                              <td>{Math.min(summary.classes_held, 30)}</td>
+                              <td>{summary.monthly_classes_held}</td>
+                              <td>{summary.monthly_classes_attended}</td>
+                              <td>{summary.semester_label || semesterLabel(summary.semester, summary.year)}</td>
+                              <td>{summary.classes_held}</td>
                               <td>{summary.classes_attended}</td>
                               <td>{summary.percentage}%</td>
                               <td>
@@ -920,9 +949,10 @@ export default function AdminDashboard() {
                         <th>Student</th>
                         <th>Roll</th>
                         <th>Department</th>
+                        <th>Semester</th>
                         <th>Subject</th>
                         <th>Percentage</th>
-                        <th>Classes</th>
+                        <th>Semester Classes</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -931,6 +961,7 @@ export default function AdminDashboard() {
                           <td>{report.student_name}</td>
                           <td>{report.roll_number || '-'}</td>
                           <td>{report.department || '-'}</td>
+                          <td>{report.semester_label || semesterLabel(report.semester, report.year)}</td>
                           <td>
                             {report.subject_name} ({report.subject_code})
                           </td>

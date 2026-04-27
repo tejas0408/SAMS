@@ -7,7 +7,9 @@ import {
   eligibilityStatus,
   isValidISODate,
   monthYearFromISODate,
-  normalizePercentage
+  normalizePercentage,
+  semesterFromMonth,
+  semesterLabel
 } from '../utils.js';
 
 const router = Router();
@@ -26,7 +28,7 @@ async function recalculateMonthlySummary(connection, studentId, subjectId, date)
     [studentId, subjectId, month, year]
   );
 
-  const classesHeld = Math.min(Number(counts.raw_classes_held || 0), 30);
+  const classesHeld = Number(counts.raw_classes_held || 0);
   const classesAttended = Math.min(Number(counts.raw_classes_attended || 0), classesHeld);
 
   if (!classesHeld) {
@@ -63,12 +65,12 @@ async function recalculateMonthlySummary(connection, studentId, subjectId, date)
        ms.classes_held,
        ms.classes_attended,
        CASE
-         WHEN LEAST(ms.classes_held, 30) = 0 THEN 0
-         ELSE ROUND((ms.classes_attended / LEAST(ms.classes_held, 30)) * 100, 2)
+         WHEN ms.classes_held = 0 THEN 0
+         ELSE ROUND((ms.classes_attended / ms.classes_held) * 100, 2)
        END AS percentage,
        CASE
-         WHEN LEAST(ms.classes_held, 30) = 0 THEN 0
-         ELSE ((ms.classes_attended / LEAST(ms.classes_held, 30)) * 100 >= 75)
+         WHEN ms.classes_held = 0 THEN 0
+         ELSE ((ms.classes_attended / ms.classes_held) * 100 >= 75)
        END AS is_eligible
      FROM monthly_summary ms
      JOIN subjects s ON s.id = ms.subject_id
@@ -226,6 +228,7 @@ router.get(
     const month = Number(req.query.month);
     const year = Number(req.query.year);
     const studentId = req.query.studentId ? Number(req.query.studentId) : null;
+    const semester = semesterFromMonth(month);
 
     if (!Number.isInteger(month) || month < 1 || month > 12) {
       return res.status(400).json({ message: 'Valid month is required.' });
@@ -239,42 +242,75 @@ router.get(
       return res.status(400).json({ message: 'Valid student id is required.' });
     }
 
-    const params = [month, year];
+    const params = [year, semester, month, year];
     let studentFilter = '';
 
     if (studentId) {
-      studentFilter = 'AND ms.student_id = ?';
+      studentFilter = 'AND ar.student_id = ?';
       params.push(studentId);
     }
 
     const [reports] = await pool.execute(
       `SELECT
-         ms.id,
-         ms.student_id,
+         MIN(ar.id) AS id,
+         ar.student_id,
          u.name AS student_name,
          u.roll_number,
          u.department,
-         ms.subject_id,
+         ar.subject_id,
          s.name AS subject_name,
          s.code AS subject_code,
-         ms.month,
-         ms.year,
-         ms.classes_held,
-         ms.classes_attended,
+         MONTH(ar.date) AS month,
+         YEAR(ar.date) AS year,
+         st.semester,
+         COUNT(*) AS monthly_classes_held,
+         COALESCE(SUM(CASE WHEN ar.status = 'present' THEN 1 ELSE 0 END), 0) AS monthly_classes_attended,
+         LEAST(st.raw_classes_held, 30) AS classes_held,
+         LEAST(st.raw_classes_attended, LEAST(st.raw_classes_held, 30)) AS classes_attended,
          CASE
-           WHEN LEAST(ms.classes_held, 30) = 0 THEN 0
-           ELSE ROUND((ms.classes_attended / LEAST(ms.classes_held, 30)) * 100, 2)
+           WHEN LEAST(st.raw_classes_held, 30) = 0 THEN 0
+           ELSE ROUND((LEAST(st.raw_classes_attended, LEAST(st.raw_classes_held, 30)) / LEAST(st.raw_classes_held, 30)) * 100, 2)
          END AS percentage,
          CASE
-           WHEN LEAST(ms.classes_held, 30) = 0 THEN 0
-           ELSE ((ms.classes_attended / LEAST(ms.classes_held, 30)) * 100 >= 75)
+           WHEN LEAST(st.raw_classes_held, 30) = 0 THEN 0
+           ELSE ((LEAST(st.raw_classes_attended, LEAST(st.raw_classes_held, 30)) / LEAST(st.raw_classes_held, 30)) * 100 >= 75)
          END AS is_eligible
-       FROM monthly_summary ms
-       JOIN users u ON u.id = ms.student_id
-       JOIN subjects s ON s.id = ms.subject_id
-       WHERE ms.month = ?
-         AND ms.year = ?
+       FROM attendance_records ar
+       JOIN users u ON u.id = ar.student_id
+       JOIN subjects s ON s.id = ar.subject_id
+       JOIN (
+         SELECT
+           student_id,
+           subject_id,
+           YEAR(date) AS year,
+           CASE WHEN MONTH(date) BETWEEN 1 AND 6 THEN 1 ELSE 2 END AS semester,
+           COUNT(*) AS raw_classes_held,
+           COALESCE(SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END), 0) AS raw_classes_attended
+         FROM attendance_records
+         WHERE YEAR(date) = ?
+           AND CASE WHEN MONTH(date) BETWEEN 1 AND 6 THEN 1 ELSE 2 END = ?
+         GROUP BY student_id, subject_id, YEAR(date), CASE WHEN MONTH(date) BETWEEN 1 AND 6 THEN 1 ELSE 2 END
+       ) st
+         ON st.student_id = ar.student_id
+        AND st.subject_id = ar.subject_id
+        AND st.year = YEAR(ar.date)
+        AND st.semester = CASE WHEN MONTH(ar.date) BETWEEN 1 AND 6 THEN 1 ELSE 2 END
+       WHERE MONTH(ar.date) = ?
+         AND YEAR(ar.date) = ?
          ${studentFilter}
+       GROUP BY
+         ar.student_id,
+         u.name,
+         u.roll_number,
+         u.department,
+         ar.subject_id,
+         s.name,
+         s.code,
+         MONTH(ar.date),
+         YEAR(ar.date),
+         st.semester,
+         st.raw_classes_held,
+         st.raw_classes_attended
        ORDER BY u.name ASC, s.name ASC`,
       params
     );
@@ -282,6 +318,11 @@ router.get(
     return res.json({
       reports: reports.map((report) => ({
         ...report,
+        semester_label: semesterLabel(report.semester, report.year),
+        monthly_classes_held: Number(report.monthly_classes_held),
+        monthly_classes_attended: Number(report.monthly_classes_attended),
+        classes_held: Number(report.classes_held),
+        classes_attended: Number(report.classes_attended),
         percentage: normalizePercentage(report.percentage),
         is_eligible: Boolean(report.is_eligible),
         status: eligibilityStatus(report.percentage, report.classes_held)
@@ -306,37 +347,74 @@ router.get(
 
     const [summaries] = await pool.execute(
       `SELECT
-         ms.id,
-         ms.student_id,
+         MIN(ar.id) AS id,
+         ar.student_id,
          u.name AS student_name,
          u.roll_number,
          u.department,
-         ms.subject_id,
+         ar.subject_id,
          s.name AS subject_name,
          s.code AS subject_code,
-         ms.month,
-         ms.year,
-         ms.classes_held,
-         ms.classes_attended,
+         MONTH(ar.date) AS month,
+         YEAR(ar.date) AS year,
+         st.semester,
+         COUNT(*) AS monthly_classes_held,
+         COALESCE(SUM(CASE WHEN ar.status = 'present' THEN 1 ELSE 0 END), 0) AS monthly_classes_attended,
+         LEAST(st.raw_classes_held, 30) AS classes_held,
+         LEAST(st.raw_classes_attended, LEAST(st.raw_classes_held, 30)) AS classes_attended,
          CASE
-           WHEN LEAST(ms.classes_held, 30) = 0 THEN 0
-           ELSE ROUND((ms.classes_attended / LEAST(ms.classes_held, 30)) * 100, 2)
+           WHEN LEAST(st.raw_classes_held, 30) = 0 THEN 0
+           ELSE ROUND((LEAST(st.raw_classes_attended, LEAST(st.raw_classes_held, 30)) / LEAST(st.raw_classes_held, 30)) * 100, 2)
          END AS percentage,
          CASE
-           WHEN LEAST(ms.classes_held, 30) = 0 THEN 0
-           ELSE ((ms.classes_attended / LEAST(ms.classes_held, 30)) * 100 >= 75)
+           WHEN LEAST(st.raw_classes_held, 30) = 0 THEN 0
+           ELSE ((LEAST(st.raw_classes_attended, LEAST(st.raw_classes_held, 30)) / LEAST(st.raw_classes_held, 30)) * 100 >= 75)
          END AS is_eligible
-       FROM monthly_summary ms
-       JOIN users u ON u.id = ms.student_id
-       JOIN subjects s ON s.id = ms.subject_id
-       WHERE ms.student_id = ?
-       ORDER BY ms.year DESC, ms.month DESC, s.name ASC`,
-      [studentId]
+       FROM attendance_records ar
+       JOIN users u ON u.id = ar.student_id
+       JOIN subjects s ON s.id = ar.subject_id
+       JOIN (
+         SELECT
+           student_id,
+           subject_id,
+           YEAR(date) AS year,
+           CASE WHEN MONTH(date) BETWEEN 1 AND 6 THEN 1 ELSE 2 END AS semester,
+           COUNT(*) AS raw_classes_held,
+           COALESCE(SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END), 0) AS raw_classes_attended
+         FROM attendance_records
+         WHERE student_id = ?
+         GROUP BY student_id, subject_id, YEAR(date), CASE WHEN MONTH(date) BETWEEN 1 AND 6 THEN 1 ELSE 2 END
+       ) st
+         ON st.student_id = ar.student_id
+        AND st.subject_id = ar.subject_id
+        AND st.year = YEAR(ar.date)
+        AND st.semester = CASE WHEN MONTH(ar.date) BETWEEN 1 AND 6 THEN 1 ELSE 2 END
+       WHERE ar.student_id = ?
+       GROUP BY
+         ar.student_id,
+         u.name,
+         u.roll_number,
+         u.department,
+         ar.subject_id,
+         s.name,
+         s.code,
+         MONTH(ar.date),
+         YEAR(ar.date),
+         st.semester,
+         st.raw_classes_held,
+         st.raw_classes_attended
+       ORDER BY YEAR(ar.date) DESC, MONTH(ar.date) DESC, s.name ASC`,
+      [studentId, studentId]
     );
 
     return res.json({
       summaries: summaries.map((summary) => ({
         ...summary,
+        semester_label: semesterLabel(summary.semester, summary.year),
+        monthly_classes_held: Number(summary.monthly_classes_held),
+        monthly_classes_attended: Number(summary.monthly_classes_attended),
+        classes_held: Number(summary.classes_held),
+        classes_attended: Number(summary.classes_attended),
         percentage: normalizePercentage(summary.percentage),
         is_eligible: Boolean(summary.is_eligible),
         status: eligibilityStatus(summary.percentage, summary.classes_held)
