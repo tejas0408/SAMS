@@ -49,6 +49,7 @@ export default function TeacherDashboard() {
   const [error, setError] = useState('');
   const [isLoading, setLoading] = useState(true);
   const [isSaving, setSaving] = useState(false);
+  const [isRemovingAttendance, setRemovingAttendance] = useState(false);
   const [isGeneratingReport, setGeneratingReport] = useState(false);
 
   async function loadBaseData() {
@@ -177,6 +178,41 @@ export default function TeacherDashboard() {
       setError(requestError.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRemoveAttendance() {
+    const nextErrors = {};
+
+    if (!form.student_id) nextErrors.student_id = 'Select a student.';
+    if (!form.subject_id) nextErrors.subject_id = 'Select a subject.';
+    if (!form.date) nextErrors.date = 'Select a date.';
+
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+    if (!window.confirm('Remove this attendance record?')) return;
+
+    setRemovingAttendance(true);
+    setNotice('');
+    setError('');
+
+    try {
+      await apiRequest('/attendance/record', {
+        method: 'DELETE',
+        token,
+        body: {
+          student_id: Number(form.student_id),
+          subject_id: Number(form.subject_id),
+          date: form.date
+        }
+      });
+      await loadMonthly(form.student_id);
+      setSelectedStudentId(form.student_id);
+      setNotice('Attendance removed.');
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setRemovingAttendance(false);
     }
   }
 
@@ -312,6 +348,15 @@ export default function TeacherDashboard() {
 
                   <button className="primary-button form-action" type="submit" disabled={isSaving}>
                     {isSaving ? 'Saving...' : 'Update Attendance'}
+                  </button>
+
+                  <button
+                    className="danger-button form-action"
+                    type="button"
+                    onClick={handleRemoveAttendance}
+                    disabled={isSaving || isRemovingAttendance}
+                  >
+                    {isRemovingAttendance ? 'Removing...' : 'Remove Attendance'}
                   </button>
                 </form>
               </section>

@@ -71,6 +71,7 @@ The app supports role-based authentication, attendance marking, monthly eligibil
 - Teacher signup and login.
 - Protected teacher dashboard.
 - Select a student and update attendance by subject, date, and status.
+- Remove a mistaken attendance entry by student, subject, and date.
 - View monthly summary for a selected student.
 - Generate month/year attendance reports.
 - Export generated monthly reports as CSV.
@@ -80,6 +81,7 @@ The app supports role-based authentication, attendance marking, monthly eligibil
 - Admin signup and login.
 - Protected admin dashboard.
 - Mark attendance for any student.
+- Remove a mistaken attendance entry by student, subject, and date.
 - View all students with cumulative subject percentages.
 - Add and delete students.
 - Add and delete teachers.
@@ -285,6 +287,7 @@ Login response includes a JWT token and user object.
 
 ```text
 POST /api/attendance/mark
+DELETE /api/attendance/record
 GET  /api/attendance/my
 GET  /api/attendance/monthly/:studentId
 GET  /api/attendance/monthly-report?month=4&year=2026
@@ -292,6 +295,7 @@ GET  /api/attendance/monthly-report?month=4&year=2026&studentId=1
 ```
 
 `POST /api/attendance/mark` is allowed for admins and teachers.
+`DELETE /api/attendance/record` is also allowed for admins and teachers.
 
 Mark attendance request body:
 
@@ -304,12 +308,24 @@ Mark attendance request body:
 }
 ```
 
+Remove attendance request body:
+
+```json
+{
+  "student_id": 1,
+  "subject_id": 2,
+  "date": "2026-04-26"
+}
+```
+
 When attendance is marked:
 
 - The app inserts or updates the daily record.
 - The monthly summary is recalculated.
 - `classes_held` is capped at 30.
 - `classes_attended` is capped to the held class count.
+
+When attendance is removed, the monthly summary is recalculated. If no records remain for that student, subject, and month, the monthly summary row is removed.
 
 ### Students
 

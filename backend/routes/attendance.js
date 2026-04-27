@@ -29,6 +29,19 @@ async function recalculateMonthlySummary(connection, studentId, subjectId, date)
   const classesHeld = Math.min(Number(counts.raw_classes_held || 0), 30);
   const classesAttended = Math.min(Number(counts.raw_classes_attended || 0), classesHeld);
 
+  if (!classesHeld) {
+    await connection.execute(
+      `DELETE FROM monthly_summary
+       WHERE student_id = ?
+         AND subject_id = ?
+         AND month = ?
+         AND year = ?`,
+      [studentId, subjectId, month, year]
+    );
+
+    return null;
+  }
+
   await connection.execute(
     `INSERT INTO monthly_summary (student_id, subject_id, month, year, classes_held, classes_attended)
      VALUES (?, ?, ?, ?, ?, ?)
@@ -120,6 +133,55 @@ router.post(
 
       return res.json({
         message: 'Attendance saved.',
+        summary
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  })
+);
+
+router.delete(
+  '/record',
+  authenticateToken,
+  requireAnyRole(['admin', 'teacher']),
+  asyncHandler(async (req, res) => {
+    const studentId = Number(req.body.student_id);
+    const subjectId = Number(req.body.subject_id);
+    const date = String(req.body.date || '').trim();
+
+    if (!studentId || !subjectId || !isValidISODate(date)) {
+      return res.status(400).json({
+        message: 'Student, subject, and date are required.'
+      });
+    }
+
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const [result] = await connection.execute(
+        `DELETE FROM attendance_records
+         WHERE student_id = ?
+           AND subject_id = ?
+           AND date = ?`,
+        [studentId, subjectId, date]
+      );
+
+      if (!result.affectedRows) {
+        await connection.rollback();
+        return res.status(404).json({ message: 'Attendance record was not found for that date.' });
+      }
+
+      const summary = await recalculateMonthlySummary(connection, studentId, subjectId, date);
+      await connection.commit();
+
+      return res.json({
+        message: 'Attendance removed.',
         summary
       });
     } catch (error) {

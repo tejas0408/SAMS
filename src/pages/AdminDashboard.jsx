@@ -72,6 +72,7 @@ export default function AdminDashboard() {
   const [error, setError] = useState('');
   const [isLoading, setLoading] = useState(true);
   const [isSaving, setSaving] = useState(false);
+  const [isRemovingAttendance, setRemovingAttendance] = useState(false);
   const [isManaging, setManaging] = useState(false);
   const [isGeneratingReport, setGeneratingReport] = useState(false);
 
@@ -215,6 +216,48 @@ export default function AdminDashboard() {
       setError(requestError.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRemoveAttendance() {
+    const nextErrors = {};
+
+    if (!form.student_id) nextErrors.student_id = 'Select a student.';
+    if (!form.subject_id) nextErrors.subject_id = 'Select a subject.';
+    if (!form.date) nextErrors.date = 'Select a date.';
+
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+    if (!window.confirm('Remove this attendance record?')) return;
+
+    setRemovingAttendance(true);
+    setNotice('');
+    setError('');
+
+    try {
+      await apiRequest('/attendance/record', {
+        method: 'DELETE',
+        token,
+        body: {
+          student_id: Number(form.student_id),
+          subject_id: Number(form.subject_id),
+          date: form.date
+        }
+      });
+      await loadAdminData();
+
+      if (String(selectedStudentId) === String(form.student_id)) {
+        const data = await apiRequest(`/attendance/monthly/${form.student_id}`, { token });
+        setMonthly(data.summaries || []);
+      } else {
+        setSelectedStudentId(form.student_id);
+      }
+
+      setNotice('Attendance removed.');
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setRemovingAttendance(false);
     }
   }
 
@@ -465,6 +508,15 @@ export default function AdminDashboard() {
 
                   <button className="primary-button form-action" type="submit" disabled={isSaving}>
                     {isSaving ? 'Saving...' : 'Save Attendance'}
+                  </button>
+
+                  <button
+                    className="danger-button form-action"
+                    type="button"
+                    onClick={handleRemoveAttendance}
+                    disabled={isSaving || isRemovingAttendance}
+                  >
+                    {isRemovingAttendance ? 'Removing...' : 'Remove Attendance'}
                   </button>
                 </form>
               </section>
